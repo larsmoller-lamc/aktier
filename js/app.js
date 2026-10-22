@@ -6,6 +6,7 @@ const docRoot = db.collection(ROOT).doc("portfolio");
 const colTrades = docRoot.collection("trades");
 
 const $ = s => document.querySelector(s);
+const num = v => { const s=String(v??"").trim().replace(/\s/g,""); if(!s) return 0; const n=parseFloat(s.includes(",") ? s.replace(/\./g,"").replace(",",".") : s); return isNaN(n)?0:n; }; // "326,15", "1.054,50" og "326.15" accepteres
 const fmt0 = new Intl.NumberFormat("da-DK",{maximumFractionDigits:0});
 const fmt2 = new Intl.NumberFormat("da-DK",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtP = n => (n>=1000?fmt0:fmt2).format(n);
@@ -159,11 +160,11 @@ $("#fPaper").addEventListener("change",()=>{ // guess ccy/fx from history
 });
 $("#fCcy").addEventListener("change",()=>{ const c=$("#fCcy").value; $("#fFx").value = c==="DKK"?1:(prices.fx[c]||""); recalc(); });
 function recalc(){
-  const q=+$("#fQty").value||0, p=+$("#fPrice").value||0, fx=+$("#fFx").value||0, fee=+$("#fFee").value||0;
+  const q=num($("#fQty").value), p=num($("#fPrice").value), fx=num($("#fFx").value), fee=num($("#fFee").value);
   const gross=q*p*fx; let net = fType==="buy" ? -(gross+fee) : gross-fee; if (Math.abs(net)<0.005) net=0;
   $("#fCcyLab").textContent = $("#fCcy").value;
   $("#calcVal").textContent = fmt2.format(net);
-  if (!$("#fAmount").dataset.touched) $("#fAmount").value = net.toFixed(2);
+  if (!$("#fAmount").dataset.touched) $("#fAmount").value = net.toFixed(2).replace(".",",");
 }
 $("#fAmount").addEventListener("input",()=>{$("#fAmount").dataset.touched="1";});
 function openTrade(t){
@@ -185,7 +186,7 @@ $("#btnCancel").onclick = ()=>$("#dlgTrade").close();
 $("#formTrade").addEventListener("submit", async e=>{
   e.preventDefault();
   const t = { date:$("#fDate").value, depot:$("#fDepot").value, paper:$("#fPaper").value.trim(), ccy:$("#fCcy").value, type:fType,
-    qty:+$("#fQty").value, price:+$("#fPrice").value, fee:+$("#fFee").value||0, fx:+$("#fFx").value||1, amount:+$("#fAmount").value,
+    qty:num($("#fQty").value), price:num($("#fPrice").value), fee:num($("#fFee").value), fx:num($("#fFx").value)||1, amount:num($("#fAmount").value),
     note:$("#fNote").value.trim(), source: editing?.source||"manual", nordnetId: editing?.nordnetId||null,
     seq: editing?.seq || (Math.max(0,...trades.map(x=>x.seq||0))+1) };
   if (t.type==="buy" && t.amount>0) t.amount=-t.amount;
@@ -199,17 +200,17 @@ $("#btnDelete").onclick = async ()=>{ if(editing && confirm("Slet denne handel?"
 function openPrices(){
   const pos = positions(); const ccys=[...new Set(pos.map(p=>p.ccy).filter(c=>c!=="DKK"))];
   $("#tblPrices").innerHTML = `<thead><tr><th>Papir</th><th class="num">Kurs</th></tr></thead><tbody>`+
-    pos.map(p=>`<tr><td>${p.paper} <span class="tag">${p.ccy}</span></td><td class="num"><input type="number" step="0.01" data-paper="${p.paper}" value="${p.price??""}" placeholder="kurs"></td></tr>`).join("")+
+    pos.map(p=>`<tr><td>${p.paper} <span class="tag">${p.ccy}</span></td><td class="num"><input type="text" inputmode="decimal" data-paper="${p.paper}" value="${p.price??""}" placeholder="kurs"></td></tr>`).join("")+
     (ccys.length?`<tr><th colspan="2" style="padding-top:16px">Valutakurser</th></tr>`:"")+
-    ccys.map(c=>`<tr><td>${c} i DKK</td><td class="num"><input type="number" step="0.0001" data-ccy="${c}" value="${prices.fx[c]??""}"></td></tr>`).join("")+`</tbody>`;
+    ccys.map(c=>`<tr><td>${c} i DKK</td><td class="num"><input type="text" inputmode="decimal" data-ccy="${c}" value="${prices.fx[c]??""}"></td></tr>`).join("")+`</tbody>`;
   $("#dlgPrices").showModal();
 }
 $("#btnPrices").onclick=$("#btnPrices2").onclick=openPrices;
 $("#btnPricesCancel").onclick=()=>$("#dlgPrices").close();
 $("#btnPricesSave").onclick=async()=>{
   const papers={...prices.papers}, fx={...prices.fx};
-  $("#tblPrices").querySelectorAll("[data-paper]").forEach(i=>{ if(i.value) papers[i.dataset.paper]=+i.value; });
-  $("#tblPrices").querySelectorAll("[data-ccy]").forEach(i=>{ if(i.value) fx[i.dataset.ccy]=+i.value; });
+  $("#tblPrices").querySelectorAll("[data-paper]").forEach(i=>{ if(i.value.trim()) papers[i.dataset.paper]=num(i.value); });
+  $("#tblPrices").querySelectorAll("[data-ccy]").forEach(i=>{ if(i.value.trim()) fx[i.dataset.ccy]=num(i.value); });
   const p={papers,fx,updated:new Date().toISOString().slice(0,10)};
   try{ await docRoot.set({prices:p},{merge:true}); $("#dlgPrices").close(); toast("Kurser gemt"); }catch(err){alert(err.message);}
 };
@@ -225,7 +226,7 @@ $("#fileImport").addEventListener("change", async e=>{
   let text = (u8[0]===0xFF&&u8[1]===0xFE)||(u8[0]===0xFE&&u8[1]===0xFF) ? new TextDecoder("utf-16").decode(buf) : new TextDecoder("utf-8").decode(buf);
   const lines=text.split(/\r?\n/).filter(l=>l.trim()); const sep=lines[0].includes("\t")?"\t":";";
   const head=lines[0].split(sep).map(h=>h.trim());
-  const idx=n=>head.indexOf(n); const num=s=>parseFloat(String(s).replace(/\s/g,"").replace(",","."))||0;
+  const idx=n=>head.indexOf(n);
   const existing=new Set(trades.map(t=>t.nordnetId).filter(Boolean));
   const names={}; trades.forEach(t=>{ names[t.paper.toLowerCase()]=t.paper; });
   const valIdx=head.map((h,i)=>h==="Valuta"?i:-1).filter(i=>i>=0); const ccyIdx = valIdx.length>=4 ? valIdx[3] : -1; // 4. "Valuta" = papirets valuta
